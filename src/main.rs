@@ -5,13 +5,53 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
+    use rand::Rng;
+
     use super::*;
 
     #[test]
-    fn dram_test() {
-        let dram = dram::Dram::new(16);
+    fn dram_init_test() {
+        let dram = dram::Dram::new(32);
         let dram_lock = dram.phys_ram.lock().unwrap();
-        assert!(dram_lock.len() == 2, "DRAM length incorrect");
+        
+        assert!(dram_lock.len() == 4, "DRAM length incorrect");
+    }
+
+    #[test]
+    fn rand_dram_rw_test() {
+        let mut dram = dram::Dram::new(32);
+
+        let mut rng = rand::thread_rng();
+
+        for i in 0..64 {
+            match i & 0b11 {
+                0 => {
+                    let addr = rng.gen_range(0..32);
+                    let val = rng.gen();
+                    dram.write_u8(addr, val).unwrap();
+                    assert!(dram.read_u8(addr).unwrap() == val, "Read/Write test on DRAM failed");
+                },
+                1 => {
+                    let addr = rng.gen_range(0..16) << 1;
+                    let val = rng.gen();
+                    dram.write_u16(addr, val).unwrap();
+                    assert!(dram.read_u16(addr).unwrap() == val, "Read/Write test on DRAM failed");
+                },
+                2 => {
+                    let addr = rng.gen_range(0..8) << 2;
+                    let val = rng.gen();
+                    dram.write_u32(addr, val).unwrap();
+                    assert!(dram.read_u32(addr).unwrap() == val, "Read/Write test on DRAM failed");
+                },
+                3 => {
+                    let addr = rng.gen_range(0..4) << 3;
+                    let val = rng.gen();
+                    dram.write_u64(addr, val).unwrap();
+                    assert!(dram.read_u64(addr).unwrap() == val, "Read/Write test on DRAM failed");
+                },
+                _ => unreachable!()
+            }
+        }
     }
 
     #[test]
