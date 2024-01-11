@@ -3,8 +3,9 @@ pub struct Tlb(&'static mut [Option<(u64, TlbEntry)>], PurgeRule);
 
 /// Specifies how the TLB will handle overlapping translations
 pub enum PurgeRule {
+    /// Overlaps should always purge, and will never error
     MustPurge,
-    MayPurge,
+    /// Overlaps MUST NOT purge, an error will be returned
     MustNotPurge,
 }
 
@@ -36,6 +37,7 @@ impl Tlb {
     }
 
     pub fn fetch(&self, vaddr: u64) -> Option<TlbEntry> {
+        let vaddr = vaddr >> 12;
         for entry in self.0.iter() {
             if let Some(entry) = entry {
                 if entry.0 == vaddr {
@@ -47,9 +49,11 @@ impl Tlb {
         None
     }
 
-    /// Inserts a new TLB entry, destroying the old one  
+    /// Inserts a new TLB entry, destroying the old one
+    ///  
     /// See PurgeRule enum for information on how it can purge entries inside itself
     pub fn insert(&mut self, idx: usize, vaddr: u64, entry: TlbEntry) -> Option<()> {
+        let vaddr = vaddr >> 12;
         match self.1 {
             PurgeRule::MustPurge => {
                 self.inval(vaddr)
@@ -72,10 +76,13 @@ impl Tlb {
     }
 
     pub fn inval(&mut self, vaddr: u64) {
-        for entry in self.0.iter_mut() {
-            if let Some(entry) = entry {
-                if entry.0 == vaddr {
-                    entry.1.set_valid(false);
+        for (idx, entry) in self.0.iter_mut().enumerate() {
+            if let Some(inner_entry) = entry {
+                if inner_entry.0 == vaddr {
+                    println!("Invalidating entry {}", idx);
+                    inner_entry.1.set_valid(false);
+                    *entry = None;
+                    println!("Entry state {:?}", *entry);
                 }
             }
         }

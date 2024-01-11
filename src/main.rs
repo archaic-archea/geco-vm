@@ -67,13 +67,32 @@ mod tests {
 
     #[test]
     fn tlb_test() {
-        let mut itlb = mmu::Tlb::new(1, mmu::PurgeRule::MayPurge);
-        itlb.insert(
+        let mut itlbr = mmu::Tlb::new(4, mmu::PurgeRule::MustNotPurge);
+        assert!(itlbr.insert(
             0, 
             0,
             mmu::TlbEntry::new(0, true, true, false, false)
-        );
+        ).is_some(), "TLB insertion failure");
+        assert!(itlbr.insert(
+            1, 
+            12,
+            mmu::TlbEntry::new(0, true, true, false, false)
+        ).is_none(), "TLB insertion success");
 
-        assert!(itlb.fetch(0) == Some(mmu::TlbEntry::new(0, true, true, false, false)), "Failed to fetch TLB entry");
+        assert!(itlbr.fetch(0) == Some(mmu::TlbEntry::new(0, true, true, false, false)), "Failed to fetch TLB entry");
+        
+        let mut itlbc = mmu::Tlb::new(4, mmu::PurgeRule::MustPurge);
+        assert!(itlbc.insert(
+            0, 
+            0,
+            mmu::TlbEntry::new(0, true, true, false, false)
+        ).is_some(), "TLB insertion failure");
+        assert!(itlbc.insert(
+            1, 
+            12,
+            mmu::TlbEntry::new(0, true, true, false, false)
+        ).is_some(), "TLB insertion failure");
+
+        assert!(itlbc.fetch(1) == Some(mmu::TlbEntry::new(0, true, true, false, false)), "Failed to fetch TLB entry");
     }
 }
