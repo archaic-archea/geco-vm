@@ -1,5 +1,5 @@
 /// Translation Lookaside Buffer. Simulates a TLB by using an array of virtually tagged TLB entries.
-pub struct Tlb(&'static mut [Option<(u64, TlbEntry)>], PurgeRule);
+pub struct Tlb(&'static mut [(u64, TlbEntry)], PurgeRule);
 
 /// Specifies how the TLB will handle overlapping translations
 pub enum PurgeRule {
@@ -21,10 +21,10 @@ impl Tlb {
         let buffer = unsafe {
             let ptr = alloc_zeroed(
                 Layout::from_size_align(
-                    size * size_of::<Option<(u64, TlbEntry)>>(), 
-                    align_of::<Option<(u64, TlbEntry)>>()
+                    size * size_of::<(u64, TlbEntry)>(), 
+                    align_of::<(u64, TlbEntry)>()
                 ).unwrap()
-            ) as *mut Option<(u64, TlbEntry)>;
+            ) as *mut (u64, TlbEntry);
 
             if ptr.is_null() {
                 panic!("Cache allocation failed, aborting");
@@ -39,10 +39,8 @@ impl Tlb {
     pub fn fetch(&self, vaddr: u64) -> Option<TlbEntry> {
         let vaddr = vaddr >> 12;
         for entry in self.0.iter() {
-            if let Some(entry) = entry {
-                if entry.0 == vaddr {
-                    return Some(entry.1);
-                }
+            if entry.1.valid() && entry.0 == vaddr {
+                return Some(entry.1);
             }
         }
         
@@ -61,30 +59,40 @@ impl Tlb {
             _ => {
                 // Dont purge if not needed
                 for entry in self.0.iter() {
-                    if let Some(entry) = entry {
-                        if entry.0 == 0 {
-                            return None;
-                        }
+                    if entry.1.valid() && entry.0 == vaddr {
+                        return None;
                     }
                 }
             }
         }
 
-        self.0[idx] = Some((vaddr, entry));
+        self.0[idx] = (vaddr, entry);
 
         Some(())
     }
 
     pub fn inval(&mut self, vaddr: u64) {
-        for (idx, entry) in self.0.iter_mut().enumerate() {
-            if let Some(inner_entry) = entry {
-                if inner_entry.0 == vaddr {
-                    println!("Invalidating entry {}", idx);
-                    inner_entry.1.set_valid(false);
-                    *entry = None;
-                    println!("Entry state {:?}", *entry);
-                }
+        for entry in self.0.iter_mut() {
+            if entry.1.valid() && entry.0 == vaddr {
+                entry.1.set_valid(false);
             }
+        }
+    }
+}
+
+impl Drop for Tlb {
+    fn drop(&mut self) {
+        use std::alloc::{dealloc, Layout};
+        use std::mem::{size_of, align_of};
+
+        unsafe {
+            dealloc(
+                self.0.as_ptr() as *mut u8, 
+                Layout::from_size_align(
+                    self.0.len() * size_of::<(u64, TlbEntry)>(), 
+                    align_of::<(u64, TlbEntry)>()
+                ).unwrap()
+            );
         }
     }
 }
@@ -102,23 +110,27 @@ bitfield::bitfield! {
     write, set_write: 2;
     /// Whether or not an entry has executable data
     exec, set_exec: 3;
-    /// Physical Page Number
-    ppn, set_ppn: 55, 4;
     /// Specifies page attributes
-    attrib, set_attrib: 56;
+    attrib, set_attrib: 4;
+    /// Physical Page Number
+    ppn, set_ppn: 63, 12;
 }
 
 impl TlbEntry {
-    pub fn new(paddr: u64, read: bool, write: bool, exec: bool, attrib: bool) -> Self {
-        let mut new = Self(0);
-
-        new.set_ppn(paddr >> 12);
-        new.set_valid(true);
-        new.set_read(read);
-        new.set_write(write);
-        new.set_exec(exec);
-        new.set_attrib(attrib);
-
-        new
+    pub const fn new(paddr: u64, read: bool, write: bool, exec: bool, attrib: bool) -> Self {
+        Self(
+            // ppn
+            (paddr & 0xffff_ffff_ffff_f000) |
+            // read
+            ((read as u64) << 1) |
+            // write
+            ((write as u64) << 2) |
+            // exec
+            ((exec as u64) << 3) |
+            // attrib
+            ((attrib as u64) << 4) |
+            // valid
+            (1)
+        )
     }
 }

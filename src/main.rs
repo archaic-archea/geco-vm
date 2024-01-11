@@ -67,32 +67,100 @@ mod tests {
 
     #[test]
     fn tlb_test() {
-        let mut itlbr = mmu::Tlb::new(4, mmu::PurgeRule::MustNotPurge);
-        assert!(itlbr.insert(
-            0, 
-            0,
-            mmu::TlbEntry::new(0, true, true, false, false)
-        ).is_some(), "TLB insertion failure");
-        assert!(itlbr.insert(
-            1, 
-            12,
-            mmu::TlbEntry::new(0, true, true, false, false)
-        ).is_none(), "TLB insertion success");
+        let mut rng = rand::thread_rng();
 
-        assert!(itlbr.fetch(0) == Some(mmu::TlbEntry::new(0, true, true, false, false)), "Failed to fetch TLB entry");
+        //   Test MustNotPurge rule
+
+        let mut itlbr = mmu::Tlb::new(8, mmu::PurgeRule::MustNotPurge);
+
+        for _ in 0..1024 {
+            let vaddr_0 = rng.gen();
+            let vaddr_1 = rng.gen();
+
+            let idx_0 = rng.gen_range(0..8);
+            let idx_1 = rng.gen_range(0..8);
+
+            const ENTRY_0: mmu::TlbEntry = mmu::TlbEntry::new(0, true, true, false, false);
+            const ENTRY_1: mmu::TlbEntry = mmu::TlbEntry::new(0, true, true, true, false);
+
+            let insert_0 = itlbr.insert(
+                idx_0, 
+                vaddr_0, 
+                ENTRY_0
+            );
+            let insert_1 = itlbr.insert(
+                idx_1, 
+                vaddr_1, 
+                ENTRY_1
+            );
+            
+            assert!(insert_0.is_some(), "First insertion failed");
+
+            if idx_0 == idx_1 {
+                assert!(insert_1.is_some(), "Insertion failed");
+                
+                assert!(itlbr.fetch(vaddr_0).is_none(), "Overwrite failed");
+                assert!(itlbr.fetch(vaddr_1) == Some(ENTRY_1), "Overwrite failed");
+            } else {
+                if (vaddr_0 & !0xfff) == (vaddr_1 & !0xfff) {
+                    assert!(itlbr.fetch(vaddr_0) == Some(ENTRY_0), "Overwrite occured");
+                    assert!(itlbr.fetch(vaddr_1).is_none() , "Overwrite occured");
+
+                    assert!(insert_1.is_none(), "Purge occured");
+                } else {
+                    assert!(itlbr.fetch(vaddr_0) == Some(ENTRY_0), "Overwrite occured");
+                    assert!(itlbr.fetch(vaddr_1) == Some(ENTRY_1), "Overwrite occured");
+
+                    assert!(insert_1.is_some(), "Overlap occured");
+                }
+            }
+        }
         
-        let mut itlbc = mmu::Tlb::new(4, mmu::PurgeRule::MustPurge);
-        assert!(itlbc.insert(
-            0, 
-            0,
-            mmu::TlbEntry::new(0, true, true, false, false)
-        ).is_some(), "TLB insertion failure");
-        assert!(itlbc.insert(
-            1, 
-            12,
-            mmu::TlbEntry::new(0, true, true, false, false)
-        ).is_some(), "TLB insertion failure");
+        //   Test MustPurge rule
 
-        assert!(itlbc.fetch(1) == Some(mmu::TlbEntry::new(0, true, true, false, false)), "Failed to fetch TLB entry");
+        let mut itlbc = mmu::Tlb::new(8, mmu::PurgeRule::MustPurge);
+
+        for _ in 0..1024 {
+            let vaddr_0 = rng.gen();
+            let vaddr_1 = rng.gen();
+
+            let idx_0 = rng.gen_range(0..8);
+            let idx_1 = rng.gen_range(0..8);
+
+            const ENTRY_0: mmu::TlbEntry = mmu::TlbEntry::new(0, true, true, false, false);
+            const ENTRY_1: mmu::TlbEntry = mmu::TlbEntry::new(0, true, true, true, false);
+
+            let insert_0 = itlbc.insert(
+                idx_0, 
+                vaddr_0, 
+                ENTRY_0
+            );
+            let insert_1 = itlbc.insert(
+                idx_1, 
+                vaddr_1, 
+                ENTRY_1
+            );
+            
+            assert!(insert_0.is_some(), "First insertion failed");
+
+            if idx_0 == idx_1 {
+                assert!(insert_1.is_some(), "Insertion failed");
+                
+                assert!(itlbc.fetch(vaddr_0).is_none(), "Overwrite failed");
+                assert!(itlbc.fetch(vaddr_1) == Some(ENTRY_1), "Overwrite failed");
+            } else {
+                if (vaddr_0 & !0xfff) == (vaddr_1 & !0xfff) {
+                    assert!(itlbc.fetch(vaddr_0).is_none(), "Overwrite occured");
+                    assert!(itlbc.fetch(vaddr_1) == Some(ENTRY_1), "Overwrite occured");
+
+                    assert!(insert_1.is_some(), "Purge didnt occur");
+                } else {
+                    assert!(itlbc.fetch(vaddr_0) == Some(ENTRY_0), "Overwrite occured");
+                    assert!(itlbc.fetch(vaddr_1) == Some(ENTRY_1), "Overwrite occured");
+
+                    assert!(insert_1.is_some(), "Overlap occured");
+                }
+            }
+        }
     }
 }
