@@ -67,12 +67,13 @@ mod tests {
 
     #[test]
     fn tlb_test() {
-        let mut itlb = mmu::Tlb::new(1);
+        let mut itlb = mmu::Tlb::new(1, mmu::PurgeRule::MayPurge);
         itlb.insert(
             0, 
+            0,
             mmu::TlbEntry::new(0, true, true, false, false)
         );
 
-        assert!(itlb.fetch(0).unwrap() == mmu::TlbEntry::new(0, true, true, false, false), "Failed to fetch TLB entry");
+        assert!(itlb.fetch(0) == Some(mmu::TlbEntry::new(0, true, true, false, false)), "Failed to fetch TLB entry");
     }
 }

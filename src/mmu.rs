@@ -1,34 +1,84 @@
-/// The TLB is basically just a VIVT cache that stores the physical address, and access values
-pub struct Tlb<'cache>(crate::cache::Cache<'cache, u64, TlbEntry>);
+/// Translation Lookaside Buffer. Simulates a TLB by using an array of virtually tagged TLB entries.
+pub struct Tlb(&'static mut [Option<(u64, TlbEntry)>], PurgeRule);
 
-impl<'cache> Tlb<'cache> {
-    pub fn new(size: usize) -> Self {
-        Self(crate::cache::Cache::new(size))
+/// Specifies how the TLB will handle overlapping translations
+pub enum PurgeRule {
+    MustPurge,
+    MayPurge,
+    MustNotPurge,
+}
+
+impl Tlb {
+    pub fn new(size: usize, rule: PurgeRule) -> Self {
+        use std::alloc::{alloc_zeroed, Layout};
+        use std::mem::{size_of, align_of};
+
+        if !size.is_power_of_two() {
+            panic!("Invalid cache size, cache size must be power of two")
+        }
+
+        let buffer = unsafe {
+            let ptr = alloc_zeroed(
+                Layout::from_size_align(
+                    size * size_of::<Option<(u64, TlbEntry)>>(), 
+                    align_of::<Option<(u64, TlbEntry)>>()
+                ).unwrap()
+            ) as *mut Option<(u64, TlbEntry)>;
+
+            if ptr.is_null() {
+                panic!("Cache allocation failed, aborting");
+            }
+
+            std::slice::from_raw_parts_mut(ptr, size)
+        };
+
+        Self(buffer, rule)
     }
 
     pub fn fetch(&self, vaddr: u64) -> Option<TlbEntry> {
-        let entry = self.0.get(vaddr as usize);
-        if entry.tag() == vaddr {
-            Some(**entry)
-        } else {
-            None
+        for entry in self.0.iter() {
+            if let Some(entry) = entry {
+                if entry.0 == vaddr {
+                    return Some(entry.1);
+                }
+            }
         }
+        
+        None
     }
 
-    /// Swaps out a TLB entry, returns the vaddr, paddr, and flags
-    pub fn insert(&mut self, vaddr: u64, entry: TlbEntry) -> (u64, TlbEntry) {
-        let old = self.0.insert(
-            vaddr as usize, 
-            crate::cache::CacheEntry::new(
-                vaddr, 
-                entry
-            )
-        );
+    /// Inserts a new TLB entry, destroying the old one  
+    /// See PurgeRule enum for information on how it can purge entries inside itself
+    pub fn insert(&mut self, idx: usize, vaddr: u64, entry: TlbEntry) -> Option<()> {
+        match self.1 {
+            PurgeRule::MustPurge => {
+                self.inval(vaddr)
+            }
+            _ => {
+                // Dont purge if not needed
+                for entry in self.0.iter() {
+                    if let Some(entry) = entry {
+                        if entry.0 == 0 {
+                            return None;
+                        }
+                    }
+                }
+            }
+        }
 
-        (
-            old.tag(),
-            *old
-        )
+        self.0[idx] = Some((vaddr, entry));
+
+        Some(())
+    }
+
+    pub fn inval(&mut self, vaddr: u64) {
+        for entry in self.0.iter_mut() {
+            if let Some(entry) = entry {
+                if entry.0 == vaddr {
+                    entry.1.set_valid(false);
+                }
+            }
+        }
     }
 }
 
@@ -47,12 +97,12 @@ bitfield::bitfield! {
     exec, set_exec: 3;
     /// Physical Page Number
     ppn, set_ppn: 55, 4;
-    /// Marks a page as not cacheable
-    nc, set_nc: 56;
+    /// Specifies page attributes
+    attrib, set_attrib: 56;
 }
 
 impl TlbEntry {
-    pub fn new(paddr: u64, read: bool, write: bool, exec: bool, nc: bool) -> Self {
+    pub fn new(paddr: u64, read: bool, write: bool, exec: bool, attrib: bool) -> Self {
         let mut new = Self(0);
 
         new.set_ppn(paddr >> 12);
@@ -60,7 +110,7 @@ impl TlbEntry {
         new.set_read(read);
         new.set_write(write);
         new.set_exec(exec);
-        new.set_nc(nc);
+        new.set_attrib(attrib);
 
         new
     }
