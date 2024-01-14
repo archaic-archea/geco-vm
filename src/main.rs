@@ -1,4 +1,4 @@
-use geco_vm::*;
+use geco::*;
 
 fn main() {
 }
